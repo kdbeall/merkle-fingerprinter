@@ -4,11 +4,10 @@ import (
 	b64 "encoding/base64"
 	"fmt"
 	"golang.org/x/crypto/sha3"
+	"hash"
 	"io"
 	"os"
 )
-
-const BufferSize = 64
 
 const (
 	Yellow  = "\033[1;33m%s\033[0m"
@@ -17,8 +16,13 @@ const (
 	Cyan    = "\033[0;36m%s\033[0m"
 )
 
+const (
+	BufferSize = 64
+	LineNum    = 4
+)
+
 func prettyPrint(fingerPrint string) {
-	for i := 0; i < 4; i++ {
+	for i := 0; i < LineNum; i++ {
 		startIdx := i * 22
 		endIdx := (i + 1) * 22
 		sum := 0
@@ -43,11 +47,10 @@ func prettyPrint(fingerPrint string) {
 	}
 }
 
-func fingerPrint(table [][]byte) []byte {
+func fingerPrint(table [][]byte, hasher hash.Hash) []byte {
 	if len(table) == 1 {
 		return table[0]
 	}
-	hasher := sha3.New512()
 	children := make([][]byte, 0)
 	for i, j := 0, 1; j < len(table); i, j = i+1, j+1 {
 		hasher.Write(table[i])
@@ -56,21 +59,10 @@ func fingerPrint(table [][]byte) []byte {
 		hasher.Reset()
 		children = append(children, hashValue)
 	}
-	return fingerPrint(children)
+	return fingerPrint(children, hasher)
 }
 
-func main() {
-	if len(os.Args) != 2 {
-		fmt.Println("Not enough arguments!")
-		return
-	}
-	file, err := os.Open(os.Args[1])
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	hasher := sha3.New512()
-	defer file.Close()
+func getBlocks(file *os.File, hasher hash.Hash) [][]byte {
 	buffer := make([]byte, BufferSize)
 	children := make([][]byte, 0)
 	for {
@@ -81,7 +73,7 @@ func main() {
 			}
 			break
 		}
-		if bytesRead < 64 {
+		if bytesRead < BufferSize {
 			for i := range buffer {
 				if i >= bytesRead {
 					buffer[i] = 0
@@ -102,5 +94,21 @@ func main() {
 		hasher.Reset()
 		children = append(children, hashValue)
 	}
-	prettyPrint(b64.StdEncoding.EncodeToString(fingerPrint(children)))
+	return children
+}
+
+func main() {
+	if len(os.Args) != 2 {
+		fmt.Println("Not enough arguments.")
+		panic("Not enough arguments.")
+	}
+	file, err := os.Open(os.Args[1])
+	if err != nil {
+		fmt.Println(err)
+		panic(err)
+	}
+	defer file.Close()
+	hasher := sha3.New512()
+	children := getBlocks(file, hasher)
+	prettyPrint(b64.StdEncoding.EncodeToString(fingerPrint(children, hasher)))
 }
